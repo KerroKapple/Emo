@@ -11,12 +11,12 @@ from PIL import Image
 import io
 import base64
 import os
-import sys
 
-# 添加src目录到路径
-sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
-
+import src.config as config
 from src.model import get_model
+from src.logging_setup import get_logger
+
+logger = get_logger('emotion.app')
 
 app = Flask(__name__)
 CORS(app)  # 允许跨域请求
@@ -25,25 +25,9 @@ CORS(app)  # 允许跨域请求
 model = None
 device = None
 transform = None
-classes = ['anger', 'fear', 'happy', 'sad', 'surprise']
-
-# 中文翻译
-class_names_zh = {
-    'anger': '愤怒',
-    'fear': '恐惧',
-    'happy': '快乐',
-    'sad': '悲伤',
-    'surprise': '惊讶'
-}
-
-# 表情emoji
-class_emojis = {
-    'anger': '😠',
-    'fear': '😨',
-    'happy': '😊',
-    'sad': '😢',
-    'surprise': '😲'
-}
+classes = config.CLASSES
+class_names_zh = config.CLASS_NAMES_ZH
+class_emojis = config.CLASS_EMOJIS
 
 
 def load_model(model_path, model_type):
@@ -52,17 +36,17 @@ def load_model(model_path, model_type):
 
     # 设置设备
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    print(f"使用设备: {device}")
+    logger.info(f"使用设备: {device}")
 
     # 创建模型
-    model = get_model(model_type, num_classes=5, pretrained=False)
+    model = get_model(model_type, num_classes=config.NUM_CLASSES, pretrained=False)
 
     # 加载权重
     checkpoint = torch.load(model_path, map_location=device)
 
     # 检查是否是量化模型
     if checkpoint.get('quantized', False):
-        print("加载量化模型...")
+        logger.info("加载量化模型...")
         model = torch.quantization.quantize_dynamic(
             model,
             {nn.Linear, nn.Conv2d},
@@ -75,14 +59,14 @@ def load_model(model_path, model_type):
 
     # 数据预处理
     transform = transforms.Compose([
-        transforms.Resize((48, 48)),
+        transforms.Resize((config.IMAGE_SIZE, config.IMAGE_SIZE)),
         transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                             std=[0.229, 0.224, 0.225])
+        transforms.Normalize(mean=config.IMAGENET_MEAN,
+                             std=config.IMAGENET_STD)
     ])
 
-    print(f"✅ 模型加载成功: {model_type}")
-    print(f"   训练时准确率: {checkpoint.get('accuracy', 'N/A')}")
+    logger.info(f"✅ 模型加载成功: {model_type}")
+    logger.info(f"   训练时准确率: {checkpoint.get('accuracy', 'N/A')}")
 
 
 def predict_image(image):
@@ -130,7 +114,7 @@ def index():
 @app.route('/api/models', methods=['GET'])
 def get_available_models():
     """获取可用模型列表"""
-    models_dir = 'models'
+    models_dir = str(config.MODELS_DIR)
 
     if not os.path.exists(models_dir):
         return jsonify({'error': '模型文件夹不存在'}), 404
@@ -174,7 +158,7 @@ def load_model_endpoint():
     if not model_filename or not model_type:
         return jsonify({'error': '缺少参数'}), 400
 
-    model_path = os.path.join('models', model_filename)
+    model_path = os.path.join(str(config.MODELS_DIR), model_filename)
 
     if not os.path.exists(model_path):
         return jsonify({'error': '模型文件不存在'}), 404
@@ -234,7 +218,7 @@ def status():
 
 if __name__ == '__main__':
     # 默认加载一个模型（如果存在）
-    default_model = 'models/best_model_resnet18.pth'
+    default_model = str(config.MODELS_DIR / 'best_model_resnet18.pth')
     if os.path.exists(default_model):
         try:
             load_model(default_model, 'resnet18')
@@ -254,4 +238,7 @@ if __name__ == '__main__':
     print("  GET  /api/status       - 获取服务状态")
     print("=" * 70)
 
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    debug = os.environ.get('FLASK_DEBUG', '0') == '1'
+    host = os.environ.get('FLASK_HOST', '127.0.0.1')
+    port = int(os.environ.get('FLASK_PORT', '5000'))
+    app.run(debug=debug, host=host, port=port)
