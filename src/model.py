@@ -106,6 +106,7 @@ class TransferModel(nn.Module):
         self.backbone = builder(weights=weights)
 
         if head_kind == 'fc':
+            # 仅 ResNet 头部保留 Dropout，沿用原各包装类的设定
             in_features = self.backbone.fc.in_features
             self.backbone.fc = nn.Sequential(
                 nn.Dropout(0.5),
@@ -117,6 +118,8 @@ class TransferModel(nn.Module):
         elif head_kind == 'vgg':
             in_features = self.backbone.classifier[6].in_features
             self.backbone.classifier[6] = nn.Linear(in_features, num_classes)
+        else:
+            raise ValueError(f"未知 head 类型: {head_kind}")
 
     def forward(self, x):
         return self.backbone(x)
