@@ -6,7 +6,8 @@ import torch
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
-from train import train_model
+import src.config as config
+from src.train import train_model
 import time
 import os
 from datetime import datetime
@@ -204,7 +205,7 @@ def visualize_realtime_progress(results, current_model_name):
     plt.tight_layout()
 
     # 保存实时进度图
-    save_path = '../results/training_progress_realtime.png'
+    save_path = str(config.RESULTS_DIR / 'training_progress_realtime.png')
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
     plt.savefig(save_path, dpi=150, bbox_inches='tight')
     plt.close()
@@ -326,7 +327,7 @@ def save_results_table(results):
     df = pd.DataFrame(results)
 
     # 保存为CSV
-    csv_path = '../results/models_comparison.csv'
+    csv_path = str(config.RESULTS_DIR / 'models_comparison.csv')
     os.makedirs(os.path.dirname(csv_path), exist_ok=True)
     df.to_csv(csv_path, index=False, encoding='utf-8-sig')
 
@@ -440,7 +441,7 @@ def plot_comparison_charts(df):
 
     plt.tight_layout()
 
-    save_path = '../results/models_comparison.png'
+    save_path = str(config.RESULTS_DIR / 'models_comparison.png')
     plt.savefig(save_path, dpi=300, bbox_inches='tight')
     print(f"\n📊 对比图表已保存至: {save_path}")
     plt.close()
