@@ -11,13 +11,14 @@ import hashlib
 from tqdm import tqdm
 import shutil
 from collections import defaultdict
+import src.config as config
 
 
 class EmotionDataset(Dataset):
     """
     表情识别数据集类（带自动清洗功能）
     """
-    def __init__(self, root_dir, transform=None, auto_clean=False, clean_on_load=True):
+    def __init__(self, root_dir, transform=None, auto_clean=False, clean_on_load=False):
         """
         初始化数据集
 
@@ -31,9 +32,8 @@ class EmotionDataset(Dataset):
         self.transform = transform
         self.clean_on_load = clean_on_load
 
-        # 定义5个表情类别
-        self.classes = ['anger', 'fear', 'happy', 'sad', 'surprise']
-        self.class_to_idx = {cls: idx for idx, cls in enumerate(self.classes)}
+        self.classes = config.CLASSES
+        self.class_to_idx = config.CLASS_TO_IDX
 
         # 清洗统计
         self.clean_stats = {
@@ -122,7 +122,7 @@ class EmotionDataset(Dataset):
         print("🔍 开始自动清洗数据集...")
         print("=" * 70)
 
-        quarantine_dir = os.path.join(os.path.dirname(self.root_dir), 'quarantine')
+        quarantine_dir = str(config.QUARANTINE_DIR)
         os.makedirs(quarantine_dir, exist_ok=True)
 
         # 第1步：检测并移除损坏/异常的图片
@@ -331,7 +331,7 @@ class EmotionDataset(Dataset):
         # 创建临时数据集对象进行清洗
         temp_dataset = EmotionDataset.__new__(EmotionDataset)
         temp_dataset.root_dir = data_dir
-        temp_dataset.classes = ['anger', 'fear', 'happy', 'sad', 'surprise']
+        temp_dataset.classes = config.CLASSES
         temp_dataset.clean_stats = {
             'total_files': 0,
             'valid_files': 0,
