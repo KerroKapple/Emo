@@ -1,5 +1,5 @@
 # 忽略数据和模型（这是最关键的）
-Data/
+data/
 models/
 results/
 
@@ -7,3 +7,5 @@ results/
 .idea/
 __pycache__/
 *.pyc
+.pytest_cache/
+.venv/

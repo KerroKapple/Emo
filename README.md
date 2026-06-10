@@ -25,8 +25,7 @@
 ```
 emotion-recognition/
 ├── app.py                      # Flask Web服务入口
-├── requirements.txt            # 训练环境依赖
-├── requirements_web.txt        # Web部署依赖
+├── pyproject.toml              # 项目依赖（uv 管理）
 ├── .gitignore
 │
 ├── src/                        # 核心代码
@@ -70,13 +69,8 @@ emotion-recognition/
 git clone <repository-url>
 cd emotion-recognition
 
-# 创建虚拟环境（推荐）
-python -m venv venv
-source venv/bin/activate  # Linux/Mac
-# 或 venv\Scripts\activate  # Windows
-
-# 安装依赖
-pip install -r requirements.txt
+# 安装依赖（使用 uv）
+uv sync
 ```
 
 ### 2. 准备数据
@@ -97,8 +91,7 @@ data/raw/
 ### 3. 数据划分
 
 ```bash
-cd src
-python utils.py
+uv run python -m src.utils
 ```
 
 这将自动清洗数据并按8:2比例划分为训练集和验证集。
@@ -108,7 +101,7 @@ python utils.py
 **训练单个模型：**
 
 ```bash
-python train.py
+uv run python -m src.train
 ```
 
 在 `train.py` 中修改配置：
@@ -126,7 +119,7 @@ config = {
 **批量训练多个模型：**
 
 ```bash
-python train_multiple.py
+uv run python -m src.train_multiple
 ```
 
 支持交互式选择要训练的模型，并自动生成对比报告。
@@ -134,7 +127,7 @@ python train_multiple.py
 ### 5. 模型评估
 
 ```bash
-python evaluate.py
+uv run python -m src.evaluate
 ```
 
 功能选项：
@@ -146,9 +139,10 @@ python evaluate.py
 ### 6. 启动Web演示
 
 ```bash
-cd ..
-pip install -r requirements_web.txt
-python app.py
+# 启动 Web（默认仅本机访问 127.0.0.1:5000）
+uv run python app.py
+# 如需对外访问或调试，用环境变量：
+# FLASK_HOST=0.0.0.0 FLASK_DEBUG=1 uv run python app.py
 ```
 
 访问 http://localhost:5000 查看Web界面。
@@ -182,7 +176,7 @@ python app.py
 将FP32模型转换为INT8，减小约75%体积：
 
 ```bash
-python optimize_distill.py
+uv run python -m src.optimize_distill
 # 选择 [1] 模型量化
 ```
 
@@ -191,7 +185,7 @@ python optimize_distill.py
 移除不重要的权重，减少计算量：
 
 ```bash
-python optimize_distill.py
+uv run python -m src.optimize_distill
 # 选择 [2] 模型剪枝
 ```
 
@@ -200,7 +194,7 @@ python optimize_distill.py
 将大模型的知识迁移到小模型：
 
 ```bash
-python optimize_distill.py
+uv run python -m src.optimize_distill
 # 选择 [3] 知识蒸馏
 ```
 
