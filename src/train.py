@@ -9,11 +9,15 @@ from torch.utils.data import DataLoader
 from torchvision import transforms
 from tqdm import tqdm
 import time
-import os
+from dataclasses import asdict
 
-from dataset import EmotionDataset
-from model import get_model, count_parameters
-from utils import plot_training_history, save_checkpoint
+import src.config as config
+from src.logging_setup import get_logger
+from src.dataset import EmotionDataset
+from src.model import get_model, count_parameters
+from src.utils import plot_training_history, save_checkpoint
+
+logger = get_logger('emotion.train')
 
 
 def train_one_epoch(model, dataloader, criterion, optimizer, device):
@@ -136,26 +140,24 @@ def train_model(
 
     # 数据增强和预处理
     train_transform = transforms.Compose([
-        transforms.Resize((48, 48)),
+        transforms.Resize((config.IMAGE_SIZE, config.IMAGE_SIZE)),
         transforms.RandomHorizontalFlip(p=0.5),  # 随机水平翻转
         transforms.RandomRotation(10),  # 随机旋转
         transforms.ColorJitter(brightness=0.2, contrast=0.2),  # 颜色抖动
         transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                           std=[0.229, 0.224, 0.225])
+        transforms.Normalize(mean=config.IMAGENET_MEAN, std=config.IMAGENET_STD)
     ])
 
     val_transform = transforms.Compose([
-        transforms.Resize((48, 48)),
+        transforms.Resize((config.IMAGE_SIZE, config.IMAGE_SIZE)),
         transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                           std=[0.229, 0.224, 0.225])
+        transforms.Normalize(mean=config.IMAGENET_MEAN, std=config.IMAGENET_STD)
     ])
 
     # 加载数据集
     print("\n加载数据集...")
-    train_dataset = EmotionDataset('../data/train', transform=train_transform)
-    val_dataset = EmotionDataset('../data/val', transform=val_transform)
+    train_dataset = EmotionDataset(str(config.TRAIN_DIR), transform=train_transform)
+    val_dataset = EmotionDataset(str(config.VAL_DIR), transform=val_transform)
 
     train_loader = DataLoader(
         train_dataset,
@@ -175,7 +177,7 @@ def train_model(
 
     # 创建模型
     print("\n创建模型...")
-    model = get_model(model_type, num_classes=5, pretrained=True)
+    model = get_model(model_type, num_classes=config.NUM_CLASSES, pretrained=True)
     model = model.to(device)
     count_parameters(model)
 
@@ -236,7 +238,7 @@ def train_model(
         # 保存最佳模型
         if val_acc > best_val_acc:
             best_val_acc = val_acc
-            save_path = f'../models/best_model_{model_type}.pth'
+            save_path = str(config.MODELS_DIR / f'best_model_{model_type}.pth')
             save_checkpoint(
                 model, optimizer, epoch+1, val_loss, val_acc, save_path
             )
@@ -251,7 +253,7 @@ def train_model(
     print(f"最佳验证准确率: {best_val_acc:.2f}%")
 
     # 保存最终模型
-    final_path = f'../models/final_model_{model_type}.pth'
+    final_path = str(config.MODELS_DIR / f'final_model_{model_type}.pth')
     save_checkpoint(
         model, optimizer, num_epochs,
         history['val_loss'][-1], history['val_acc'][-1],
@@ -259,21 +261,12 @@ def train_model(
     )
 
     # 绘制训练曲线
-    plot_training_history(history, f'../results/training_history_{model_type}.png')
+    plot_training_history(history, str(config.RESULTS_DIR / f'training_history_{model_type}.png'))
 
     return model, history
 
 
 if __name__ == "__main__":
-    # 训练配置
-    config = {
-        'model_type': 'efficientnet',  # 可选: cnn, resnet18, resnet34, resnet50, vgg16, mobilenet, efficientnet
-        'num_epochs': 20,          # 训练轮数
-        'batch_size': 64,          # 批次大小
-        'learning_rate': 0.001,    # 学习率
-        'device': 'auto'           # 'auto', 'cuda', 'cpu'
-    }
-
     print("\n" + "=" * 70)
     print("可用模型:")
     print("  - cnn: 自定义CNN (从零训练)")
@@ -285,13 +278,9 @@ if __name__ == "__main__":
     print("  - efficientnet: EfficientNet-B0 (最先进)")
     print("=" * 70)
 
-    print("\n训练配置:")
-    for key, value in config.items():
-        print(f"  {key}: {value}")
-    print()
-
-    # 开始训练
-    model, history = train_model(**config)
+    train_cfg = config.TrainConfig(model_type='efficientnet')
+    logger.info("训练配置: %s", asdict(train_cfg))
+    model, history = train_model(**asdict(train_cfg))
 
     print("\n" + "=" * 70)
     print("训练完成！")
