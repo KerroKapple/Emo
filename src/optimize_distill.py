@@ -12,9 +12,10 @@ from tqdm import tqdm
 import os
 import time
 
-from dataset import EmotionDataset
-from model import get_model
-from utils import save_checkpoint
+import src.config as config
+from src.dataset import EmotionDataset
+from src.model import get_model
+from src.utils import save_checkpoint
 
 
 # ==================== 模型量化 ====================
@@ -44,7 +45,7 @@ def quantize_model(model_path, model_type, save_path=None):
 
     # 加载原始模型
     print(f"加载模型: {model_path}")
-    model = get_model(model_type, num_classes=5, pretrained=False)
+    model = get_model(model_type, num_classes=config.NUM_CLASSES, pretrained=False)
     checkpoint = torch.load(model_path, map_location='cpu')
     model.load_state_dict(checkpoint['model_state_dict'])
     model.eval()
@@ -113,7 +114,7 @@ def prune_model(model_path, model_type, prune_amount=0.3, save_path=None):
 
     # 加载原始模型
     print(f"加载模型: {model_path}")
-    model = get_model(model_type, num_classes=5, pretrained=False)
+    model = get_model(model_type, num_classes=config.NUM_CLASSES, pretrained=False)
     checkpoint = torch.load(model_path, map_location='cpu')
     model.load_state_dict(checkpoint['model_state_dict'])
 
@@ -265,26 +266,24 @@ def knowledge_distillation(
 
     # 数据预处理
     train_transform = transforms.Compose([
-        transforms.Resize((48, 48)),
+        transforms.Resize((config.IMAGE_SIZE, config.IMAGE_SIZE)),
         transforms.RandomHorizontalFlip(p=0.5),
         transforms.RandomRotation(10),
         transforms.ColorJitter(brightness=0.2, contrast=0.2),
         transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                           std=[0.229, 0.224, 0.225])
+        transforms.Normalize(mean=config.IMAGENET_MEAN, std=config.IMAGENET_STD)
     ])
 
     val_transform = transforms.Compose([
-        transforms.Resize((48, 48)),
+        transforms.Resize((config.IMAGE_SIZE, config.IMAGE_SIZE)),
         transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                           std=[0.229, 0.224, 0.225])
+        transforms.Normalize(mean=config.IMAGENET_MEAN, std=config.IMAGENET_STD)
     ])
 
     # 加载数据集
     print("\n加载数据集...")
-    train_dataset = EmotionDataset('../data/train', transform=train_transform)
-    val_dataset = EmotionDataset('../data/val', transform=val_transform)
+    train_dataset = EmotionDataset(str(config.TRAIN_DIR), transform=train_transform)
+    val_dataset = EmotionDataset(str(config.VAL_DIR), transform=val_transform)
 
     train_loader = DataLoader(
         train_dataset, batch_size=batch_size, shuffle=True,
@@ -298,7 +297,7 @@ def knowledge_distillation(
 
     # 加载教师模型
     print("\n加载教师模型...")
-    teacher_model = get_model(teacher_model_type, num_classes=5, pretrained=False)
+    teacher_model = get_model(teacher_model_type, num_classes=config.NUM_CLASSES, pretrained=False)
     checkpoint = torch.load(teacher_model_path, map_location=device)
     teacher_model.load_state_dict(checkpoint['model_state_dict'])
     teacher_model = teacher_model.to(device)
@@ -309,7 +308,7 @@ def knowledge_distillation(
 
     # 创建学生模型
     print("\n创建学生模型...")
-    student_model = get_model(student_model_type, num_classes=5, pretrained=True)
+    student_model = get_model(student_model_type, num_classes=config.NUM_CLASSES, pretrained=True)
     student_model = student_model.to(device)
 
     # 统计参数量
@@ -440,7 +439,7 @@ def knowledge_distillation(
         # 保存最佳模型
         if val_acc > best_val_acc:
             best_val_acc = val_acc
-            save_path = f'../models/distilled_{student_model_type}_from_{teacher_model_type}.pth'
+            save_path = str(config.MODELS_DIR / f'distilled_{student_model_type}_from_{teacher_model_type}.pth')
             save_checkpoint(
                 student_model, optimizer, epoch+1, avg_loss, val_acc, save_path
             )
@@ -479,7 +478,7 @@ if __name__ == "__main__":
     if choice == '1':
         # 模型量化
         print("\n当前可用的模型:")
-        models_dir = '../models'
+        models_dir = str(config.MODELS_DIR)
         if os.path.exists(models_dir):
             models = [f for f in os.listdir(models_dir) if f.startswith('best_model_') and f.endswith('.pth')]
             for i, model in enumerate(models, 1):
@@ -496,7 +495,7 @@ if __name__ == "__main__":
     elif choice == '2':
         # 模型剪枝
         print("\n当前可用的模型:")
-        models_dir = '../models'
+        models_dir = str(config.MODELS_DIR)
         if os.path.exists(models_dir):
             models = [f for f in os.listdir(models_dir) if f.startswith('best_model_') and f.endswith('.pth')]
             for i, model in enumerate(models, 1):
@@ -536,7 +535,7 @@ if __name__ == "__main__":
             teacher_type = input("输入教师模型类型: ").strip()
             student_type = input("输入学生模型类型: ").strip()
 
-        teacher_path = f'../models/best_model_{teacher_type}.pth'
+        teacher_path = str(config.MODELS_DIR / f'best_model_{teacher_type}.pth')
 
         if os.path.exists(teacher_path):
             knowledge_distillation(
@@ -554,7 +553,7 @@ if __name__ == "__main__":
     elif choice == '4':
         # 全部执行
         print("\n将对所有已训练的模型执行量化和剪枝...")
-        models_dir = '../models'
+        models_dir = str(config.MODELS_DIR)
         if os.path.exists(models_dir):
             models = [f for f in os.listdir(models_dir) if f.startswith('best_model_') and f.endswith('.pth')]
 
