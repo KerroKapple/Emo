@@ -13,9 +13,10 @@ import os
 import time
 import pandas as pd
 
-from dataset import EmotionDataset
-from model import get_model
-from utils import (
+import src.config as config
+from src.dataset import EmotionDataset
+from src.model import get_model
+from src.utils import (
     plot_confusion_matrix,
     print_classification_report,
     load_checkpoint
@@ -50,7 +51,7 @@ def load_model_for_evaluation(model_path, model_type, device):
     is_distilled = 'distilled' in model_path
 
     # 创建模型
-    model = get_model(model_type, num_classes=5, pretrained=False)
+    model = get_model(model_type, num_classes=config.NUM_CLASSES, pretrained=False)
 
     # 加载权重
     model.load_state_dict(checkpoint['model_state_dict'])
@@ -122,15 +123,15 @@ def evaluate_model(model_path, model_type, batch_size=64, device='auto', save_re
 
     # 数据预处理（与验证集相同）
     val_transform = transforms.Compose([
-        transforms.Resize((48, 48)),
+        transforms.Resize((config.IMAGE_SIZE, config.IMAGE_SIZE)),
         transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                           std=[0.229, 0.224, 0.225])
+        transforms.Normalize(mean=config.IMAGENET_MEAN,
+                           std=config.IMAGENET_STD)
     ])
 
     # 加载验证集
     print("\n加载验证集...")
-    val_dataset = EmotionDataset('../data/val', transform=val_transform)
+    val_dataset = EmotionDataset(str(config.VAL_DIR), transform=val_transform)
     val_loader = DataLoader(
         val_dataset,
         batch_size=batch_size,
@@ -204,7 +205,7 @@ def evaluate_model(model_path, model_type, batch_size=64, device='auto', save_re
     print(f"  吞吐量: {throughput:.2f} 图片/秒")
 
     # 类别名称
-    classes = ['anger', 'fear', 'happy', 'sad', 'surprise']
+    classes = config.CLASSES
 
     # 打印分类报告
     print_classification_report(all_labels, all_predictions, classes)
@@ -213,7 +214,7 @@ def evaluate_model(model_path, model_type, batch_size=64, device='auto', save_re
     if save_results:
         # 生成保存路径（包含模型特征）
         model_name = os.path.basename(model_path).replace('.pth', '')
-        cm_path = f'../results/confusion_matrix_{model_name}.png'
+        cm_path = str(config.RESULTS_DIR / f'confusion_matrix_{model_name}.png')
         plot_confusion_matrix(all_labels, all_predictions, classes, cm_path)
 
     # 计算每个类别的准确率
@@ -221,8 +222,8 @@ def evaluate_model(model_path, model_type, batch_size=64, device='auto', save_re
     print("📊 各类别准确率")
     print("=" * 70)
 
-    class_correct = [0] * 5
-    class_total = [0] * 5
+    class_correct = [0] * config.NUM_CLASSES
+    class_total = [0] * config.NUM_CLASSES
 
     for label, pred in zip(all_labels, all_predictions):
         class_total[label] += 1
@@ -258,7 +259,7 @@ def evaluate_model(model_path, model_type, batch_size=64, device='auto', save_re
 def evaluate_all_models():
     """评估所有训练好的模型（包括优化和蒸馏后的）"""
 
-    models_dir = '../models'
+    models_dir = str(config.MODELS_DIR)
 
     if not os.path.exists(models_dir):
         print("❌ models 文件夹不存在，请先训练模型")
@@ -414,7 +415,7 @@ def generate_comprehensive_report(results):
     print(f"   大小: {most_efficient['model_size_mb']:.2f} MB")
 
     # 保存详细报告
-    csv_path = '../results/comprehensive_evaluation.csv'
+    csv_path = str(config.RESULTS_DIR / 'comprehensive_evaluation.csv')
     df.to_csv(csv_path, index=False, encoding='utf-8-sig')
     print(f"\n💾 详细报告已保存至: {csv_path}")
 
@@ -422,7 +423,7 @@ def generate_comprehensive_report(results):
 def compare_optimization_effects():
     """对比优化效果（基础 vs 量化 vs 剪枝 vs 蒸馏）"""
 
-    models_dir = '../models'
+    models_dir = str(config.MODELS_DIR)
 
     print("\n" + "=" * 70)
     print("🔬 优化效果对比分析")
@@ -504,10 +505,10 @@ def predict_single_image(model_path, model_type, image_path, device='auto'):
 
     # 数据预处理
     transform = transforms.Compose([
-        transforms.Resize((48, 48)),
+        transforms.Resize((config.IMAGE_SIZE, config.IMAGE_SIZE)),
         transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                           std=[0.229, 0.224, 0.225])
+        transforms.Normalize(mean=config.IMAGENET_MEAN,
+                           std=config.IMAGENET_STD)
     ])
 
     # 加载模型
@@ -526,7 +527,7 @@ def predict_single_image(model_path, model_type, image_path, device='auto'):
     inference_time = (time.time() - start_time) * 1000  # 转换为毫秒
 
     # 类别名称
-    classes = ['anger', 'fear', 'happy', 'sad', 'surprise']
+    classes = config.CLASSES
 
     print("\n" + "=" * 70)
     print("🖼️  单张图片预测结果")
@@ -562,7 +563,7 @@ if __name__ == "__main__":
 
     if choice == '1':
         # 评估单个模型
-        models_dir = '../models'
+        models_dir = str(config.MODELS_DIR)
         if os.path.exists(models_dir):
             model_files = [f for f in os.listdir(models_dir) if f.endswith('.pth')]
 
@@ -599,7 +600,7 @@ if __name__ == "__main__":
 
     elif choice == '4':
         # 预测单张图片
-        models_dir = '../models'
+        models_dir = str(config.MODELS_DIR)
         if os.path.exists(models_dir):
             model_files = [f for f in os.listdir(models_dir) if f.endswith('.pth')]
 
