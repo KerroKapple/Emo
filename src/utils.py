@@ -8,6 +8,7 @@ import shutil
 import random
 from pathlib import Path
 import matplotlib.pyplot as plt
+import src.config as config
 import seaborn as sns
 import numpy as np
 from sklearn.metrics import confusion_matrix, classification_report
@@ -41,7 +42,7 @@ def split_dataset(raw_dir, train_dir, val_dir, split_ratio=0.8, seed=42, auto_cl
 
     random.seed(seed)
 
-    classes = ['anger', 'fear', 'happy', 'sad', 'surprise']
+    classes = config.CLASSES
 
     print("=" * 60)
     print("开始划分数据集...")
@@ -239,9 +240,9 @@ if __name__ == "__main__":
 
     # 测试数据划分
     print("\n1. 测试数据集划分功能")
-    raw_dir = '../data/raw'
-    train_dir = '../data/train'
-    val_dir = '../data/val'
+    raw_dir = str(config.RAW_DIR)
+    train_dir = str(config.TRAIN_DIR)
+    val_dir = str(config.VAL_DIR)
 
     if os.path.exists(raw_dir):
         split_dataset(raw_dir, train_dir, val_dir, split_ratio=0.8)
