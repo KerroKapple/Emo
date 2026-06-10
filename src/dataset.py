@@ -288,7 +288,7 @@ class EmotionDataset(Dataset):
         except Exception as e:
             print(f"读取图片失败: {img_path}, 错误: {e}")
             # 如果读取失败，返回一个黑色图片
-            image = Image.new('RGB', (48, 48), (0, 0, 0))
+            image = Image.new('RGB', (config.IMAGE_SIZE, config.IMAGE_SIZE), (0, 0, 0))
 
         # 应用数据转换
         if self.transform:
@@ -393,7 +393,7 @@ if __name__ == "__main__":
 
     # 定义简单的转换
     transform = transforms.Compose([
-        transforms.Resize((48, 48)),
+        transforms.Resize((config.IMAGE_SIZE, config.IMAGE_SIZE)),
         transforms.ToTensor(),
     ])
 
@@ -401,7 +401,7 @@ if __name__ == "__main__":
         # 普通加载
         print("\n普通加载模式...")
         dataset = EmotionDataset(
-            root_dir='../data/raw',
+            root_dir=str(config.RAW_DIR),
             transform=transform,
             auto_clean=False,
             clean_on_load=False
@@ -411,7 +411,7 @@ if __name__ == "__main__":
         # 自动清洗加载
         print("\n自动清洗模式...")
         dataset = EmotionDataset(
-            root_dir='../data/raw',
+            root_dir=str(config.RAW_DIR),
             transform=transform,
             auto_clean=True,
             clean_on_load=True
@@ -420,7 +420,7 @@ if __name__ == "__main__":
     elif choice == '3':
         # 仅清洗
         print("\n仅清洗模式...")
-        stats = quick_clean('../data/raw')
+        stats = quick_clean(str(config.RAW_DIR))
 
         print("\n清洗完成！统计:")
         for key, value in stats.items():

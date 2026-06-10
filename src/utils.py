@@ -32,7 +32,7 @@ def split_dataset(raw_dir, train_dir, val_dir, split_ratio=0.8, seed=42, auto_cl
     # 如果启用自动清洗
     if auto_clean:
         print("\n先清洗数据再划分...")
-        from dataset import quick_clean
+        from src.dataset import quick_clean
         stats = quick_clean(raw_dir)
 
         print(f"\n清洗完成:")
@@ -100,7 +100,7 @@ def split_dataset(raw_dir, train_dir, val_dir, split_ratio=0.8, seed=42, auto_cl
     print("✅ 数据集划分完成！")
 
 
-def plot_training_history(history, save_path='../results/training_history.png'):
+def plot_training_history(history, save_path=None):
     """
     绘制训练历史曲线
 
@@ -110,6 +110,8 @@ def plot_training_history(history, save_path='../results/training_history.png'):
                  'train_acc': [...], 'val_acc': [...]}
         save_path: 保存路径
     """
+    if save_path is None:
+        save_path = str(config.RESULTS_DIR / 'training_history.png')
     fig, axes = plt.subplots(1, 2, figsize=(14, 5))
 
     # 绘制损失曲线
@@ -139,7 +141,7 @@ def plot_training_history(history, save_path='../results/training_history.png'):
     plt.close()
 
 
-def plot_confusion_matrix(y_true, y_pred, classes, save_path='../results/confusion_matrix.png'):
+def plot_confusion_matrix(y_true, y_pred, classes, save_path=None):
     """
     绘制混淆矩阵
 
@@ -149,6 +151,8 @@ def plot_confusion_matrix(y_true, y_pred, classes, save_path='../results/confusi
         classes: 类别名称列表
         save_path: 保存路径
     """
+    if save_path is None:
+        save_path = str(config.RESULTS_DIR / 'confusion_matrix.png')
     cm = confusion_matrix(y_true, y_pred)
 
     plt.figure(figsize=(10, 8))
