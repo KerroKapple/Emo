@@ -389,11 +389,15 @@
 
             <!-- 上传区域 -->
             <div class="upload-area">
-                <div class="upload-box" onclick="document.getElementById('fileInput').click()">
+                <div class="upload-box" id="uploadBox"
+                     onclick="document.getElementById('fileInput').click()"
+                     ondragover="event.preventDefault(); this.style.background='#e8efff';"
+                     ondragleave="this.style.background='';"
+                     ondrop="handleDrop(event); this.style.background='';">
                     <div class="upload-icon">📁</div>
-                    <div class="upload-text">点击上传图片</div>
+                    <div class="upload-text">点击或拖拽上传图片</div>
                     <div style="color: #999; margin-top: 10px; font-size: 0.9em;">
-                        支持 JPG, PNG 格式
+                        支持 JPG, PNG · 最大 10MB
                     </div>
                 </div>
 
@@ -475,7 +479,7 @@
 
                 if (data.model_loaded) {
                     indicator.className = 'status-indicator status-online';
-                    statusText.textContent = `模型已加载 (${data.device})`;
+                    statusText.textContent = `已加载 ${data.model_type} (${data.device})`;
                 } else {
                     indicator.className = 'status-indicator status-offline';
                     statusText.textContent = '请选择模型';
@@ -495,6 +499,11 @@
                 const modelGrid = document.getElementById('modelGrid');
                 modelGrid.innerHTML = '';
 
+                if (!data.models || data.models.length === 0) {
+                    modelGrid.innerHTML = '<div class="model-option"><div class="model-name">暂无模型，请先训练</div></div>';
+                    return;
+                }
+
                 data.models.forEach(model => {
                     const div = document.createElement('div');
                     div.className = 'model-option';
@@ -502,11 +511,16 @@
 
                     let badges = '';
                     if (model.is_quantized) badges += ' 🔹量化';
+                    if (model.is_pruned) badges += ' ✂️剪枝';
                     if (model.is_distilled) badges += ' 🎓蒸馏';
+
+                    const acc = (model.accuracy != null)
+                        ? `${Number(model.accuracy).toFixed(1)}% · ${model.size_mb} MB`
+                        : `${model.size_mb} MB`;
 
                     div.innerHTML = `
                         <div class="model-name">${model.model_type}${badges}</div>
-                        <div class="model-size">${model.size_mb} MB</div>
+                        <div class="model-size">${acc}</div>
                     `;
 
                     modelGrid.appendChild(div);
@@ -518,20 +532,19 @@
 
         // 选择模型
         async function selectModel(model, element) {
-            // 移除其他选中状态
             document.querySelectorAll('.model-option').forEach(el => {
                 el.classList.remove('active');
             });
             element.classList.add('active');
 
+            const statusText = document.getElementById('statusText');
+            statusText.textContent = `正在加载 ${model.model_type}...`;
+
             try {
                 const response = await fetch('/api/load_model', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({
-                        model_filename: model.filename,
-                        model_type: model.model_type
-                    })
+                    body: JSON.stringify({ model_filename: model.filename })
                 });
 
                 const data = await response.json();
@@ -542,25 +555,49 @@
                     showError('');
                 } else {
                     showError(data.error);
+                    checkStatus();
                 }
             } catch (error) {
                 showError('模型加载失败');
+                checkStatus();
             }
         }
 
+        const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+
         // 处理文件选择
         function handleFileSelect(event) {
-            const file = event.target.files[0];
-            if (file) {
-                const reader = new FileReader();
-                reader.onload = function(e) {
-                    currentImage = e.target.result;
-                    showImage(e.target.result);
-                    document.getElementById('analyzeBtn').disabled = false;
-                    document.getElementById('resultsArea').style.display = 'none';
-                };
-                reader.readAsDataURL(file);
+            loadFile(event.target.files[0]);
+        }
+
+        // 拖拽上传
+        function handleDrop(event) {
+            event.preventDefault();
+            if (event.dataTransfer.files.length) {
+                loadFile(event.dataTransfer.files[0]);
             }
+        }
+
+        // 读取并预览图片文件
+        function loadFile(file) {
+            if (!file) return;
+            if (!file.type.startsWith('image/')) {
+                showError('请选择图片文件');
+                return;
+            }
+            if (file.size > MAX_UPLOAD_BYTES) {
+                showError('图片超过 10MB 限制');
+                return;
+            }
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                currentImage = e.target.result;
+                showImage(e.target.result);
+                document.getElementById('analyzeBtn').disabled = false;
+                document.getElementById('resultsArea').style.display = 'none';
+                showError('');
+            };
+            reader.readAsDataURL(file);
         }
 
         // 显示图片

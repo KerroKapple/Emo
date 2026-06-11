@@ -29,13 +29,17 @@ emotion-recognition/
 ├── .gitignore
 │
 ├── src/                        # 核心代码
-│   ├── model.py               # 模型定义（CNN、ResNet、VGG、MobileNet、EfficientNet）
+│   ├── config.py              # 集中配置（路径、类别、输入尺寸、超参）
+│   ├── model.py               # 模型工厂（CNN + 迁移学习注册表、按模型的输入尺寸）
+│   ├── transforms.py          # 按模型构建预处理/增强管线
+│   ├── inference.py           # 自描述 checkpoint 的保存/加载与单图推理
 │   ├── dataset.py             # 数据集加载与清洗
 │   ├── train.py               # 单模型训练脚本
 │   ├── train_multiple.py      # 批量训练与对比
 │   ├── evaluate.py            # 模型评估工具
 │   ├── optimize_distill.py    # 模型优化（量化/剪枝/蒸馏）
-│   └── utils.py               # 工具函数（数据划分、可视化等）
+│   ├── logging_setup.py       # 统一日志
+│   └── utils.py               # 工具函数（随机种子、数据划分、可视化）
 │
 ├── templates/
 │   └── index.html             # Web演示前端页面
@@ -101,51 +105,50 @@ uv run python -m src.utils
 **训练单个模型：**
 
 ```bash
-uv run python -m src.train
+# 默认 EfficientNet-B0；用命令行参数覆盖
+uv run python -m src.train --model resnet18 --epochs 20 --batch-size 64 --lr 0.001
+# 强制 CPU
+uv run python -m src.train --model mobilenet --cpu
 ```
 
-在 `train.py` 中修改配置：
-
-```python
-config = {
-    'model_type': 'resnet18',  # 可选：cnn, resnet18/34/50, vgg16, mobilenet, efficientnet
-    'num_epochs': 20,
-    'batch_size': 64,
-    'learning_rate': 0.001,
-    'device': 'auto'
-}
-```
+可选模型：`cnn, resnet18, resnet34, resnet50, vgg16, mobilenet, efficientnet`。
+训练已内置：类别加权损失、label smoothing、weight decay、随机种子、早停、CUDA 自动混合精度。
+> 输入尺寸自动按模型选择：迁移学习骨干用 224×224（ImageNet 标准），自定义 CNN 用 48×48。
 
 **批量训练多个模型：**
 
 ```bash
+# 训练全部
 uv run python -m src.train_multiple
+# 仅训练指定模型
+uv run python -m src.train_multiple --models resnet18 mobilenet efficientnet
 ```
 
-支持交互式选择要训练的模型，并自动生成对比报告。
+自动生成对比报告与图表。
 
 ### 5. 模型评估
 
 ```bash
-uv run python -m src.evaluate
+# 评估 models/ 下所有模型并生成对比报告
+uv run python -m src.evaluate --all
+# 评估单个 checkpoint
+uv run python -m src.evaluate --model-path models/best_model_resnet18.pth
+# 预测单张图片
+uv run python -m src.evaluate --model-path models/best_model_resnet18.pth --image path/to/img.jpg
 ```
 
-功能选项：
-1. 评估单个模型
-2. 评估所有模型
-3. 对比优化效果
-4. 预测单张图片
+> checkpoint 自带模型类型等元信息，评估/部署时无需手动指定 `model_type`。
 
 ### 6. 启动Web演示
 
 ```bash
-# 启动 Web（默认仅本机访问 127.0.0.1:5000）
+# 启动 Web（默认仅本机访问 127.0.0.1:5000，使用 waitress 生产服务器）
 uv run python app.py
-# 如需对外访问或调试，用环境变量：
+# 对外访问 / 开发调试（FLASK_DEBUG=1 时改用 Flask 自带服务器并开启热重载）：
 # FLASK_HOST=0.0.0.0 FLASK_DEBUG=1 uv run python app.py
 ```
 
-访问 http://localhost:5000 查看Web界面。
+访问 http://localhost:5000 查看 Web 界面。启动时会自动加载首个 `best_model_*.pth`。
 
 ## 🔧 模型详解
 
@@ -173,20 +176,18 @@ uv run python app.py
 
 ### 动态量化
 
-将FP32模型转换为INT8，减小约75%体积：
+将 FP32 模型的线性层转换为 INT8（eager 模式动态量化仅作用于 `nn.Linear`）：
 
 ```bash
-uv run python -m src.optimize_distill
-# 选择 [1] 模型量化
+uv run python -m src.optimize_distill --mode quantize --model-path models/best_model_resnet18.pth
 ```
 
 ### 模型剪枝
 
-移除不重要的权重，减少计算量：
+全局非结构化 L1 剪枝（剪枝后建议微调以恢复准确率）：
 
 ```bash
-uv run python -m src.optimize_distill
-# 选择 [2] 模型剪枝
+uv run python -m src.optimize_distill --mode prune --model-path models/best_model_resnet18.pth --amount 0.3
 ```
 
 ### 知识蒸馏
@@ -194,8 +195,8 @@ uv run python -m src.optimize_distill
 将大模型的知识迁移到小模型：
 
 ```bash
-uv run python -m src.optimize_distill
-# 选择 [3] 知识蒸馏
+uv run python -m src.optimize_distill --mode distill \
+  --teacher-path models/best_model_resnet50.pth --student resnet18 --epochs 15
 ```
 
 推荐组合：
@@ -292,16 +293,25 @@ GET /api/status
 
 ### 最低配置
 
-- Python 3.8+
+- Python 3.10+
 - 8GB RAM
 - 10GB 磁盘空间
 
 ### 推荐配置
 
-- Python 3.9+
+- Python 3.10+
 - 16GB RAM
 - NVIDIA GPU (CUDA 11.0+)
 - 20GB+ 磁盘空间
+
+## 🧪 开发
+
+```bash
+# 运行测试
+uv run pytest -q
+# 代码检查
+uv run ruff check src app.py tests
+```
 
 ## 📝 注意事项
 

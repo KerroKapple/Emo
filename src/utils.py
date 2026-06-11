@@ -3,6 +3,7 @@
 import os
 import random
 import shutil
+import argparse
 
 import numpy as np
 import torch
@@ -115,3 +116,17 @@ def classification_report_text(y_true, y_pred, classes):
     report = classification_report(y_true, y_pred, target_names=classes, digits=4)
     logger.info("分类报告:\n%s", report)
     return report
+
+
+def _parse_args():
+    p = argparse.ArgumentParser(description='清洗并划分原始数据为训练/验证集')
+    p.add_argument('--ratio', type=float, default=0.8, help='训练集比例')
+    p.add_argument('--seed', type=int, default=42)
+    p.add_argument('--no-clean', action='store_true', help='划分前不清洗')
+    return p.parse_args()
+
+
+if __name__ == "__main__":
+    args = _parse_args()
+    split_dataset(str(config.RAW_DIR), str(config.TRAIN_DIR), str(config.VAL_DIR),
+                  split_ratio=args.ratio, seed=args.seed, auto_clean=not args.no_clean)
