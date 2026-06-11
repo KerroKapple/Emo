@@ -150,6 +150,26 @@ uv run python app.py
 
 访问 http://localhost:5000 查看 Web 界面。启动时会自动加载首个 `best_model_*.pth`。
 
+## 🤖 情绪核心（边缘推理）
+
+硬件无关的实时人脸情绪推理闭环，可作陪伴机器人等嵌入式设备的感知核心。
+
+```bash
+# 下载 YuNet 人脸检测权重
+uv run python -m src.face.fetch_yunet
+# 用已有的情绪 ONNX 模型跑摄像头演示
+uv run python -m src.runtime.demo --camera 0 \
+    --face-model models/face/yunet.onnx \
+    --emotion-model models/emotion.onnx --labels anger fear happy sad surprise
+# 或对单张图片推理
+uv run python -m src.runtime.demo --image face.jpg \
+    --face-model models/face/yunet.onnx --emotion-model models/emotion.onnx
+```
+
+链路：取帧 → YuNet 检测裁脸 → ONNX 情绪模型（onnxruntime）→ 时序平滑 → 情绪事件。
+推理后端（`src/engine/`）可替换为 RKNN/ncnn 而不改动 runtime；设计见
+`docs/superpowers/specs/2026-06-11-embedded-emotion-core-design.md`。
+
 ## 🔧 模型详解
 
 ### 可用模型对比

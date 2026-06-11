@@ -7,6 +7,8 @@ dependencies = [
     "flask-cors>=6.0.5",
     "matplotlib>=3.10.9",
     "numpy>=2.2.6",
+    "onnxruntime>=1.24.3",
+    "opencv-python>=4.13.0.92",
     "pandas>=2.3.3",
     "pillow>=12.2.0",
     "scikit-learn>=1.7.2",
@@ -19,6 +21,8 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "onnx>=1.21.0",
+    "onnxscript>=0.7.0",
     "pytest>=9.0.3",
     "ruff>=0.15.16",
 ]
