@@ -155,15 +155,17 @@ uv run python app.py
 硬件无关的实时人脸情绪推理闭环，可作陪伴机器人等嵌入式设备的感知核心。
 
 ```bash
-# 下载 YuNet 人脸检测权重
-uv run python -m src.face.fetch_yunet
-# 用已有的情绪 ONNX 模型跑摄像头演示
-uv run python -m src.runtime.demo --camera 0 \
-    --face-model models/face/yunet.onnx \
-    --emotion-model models/emotion.onnx --labels anger fear happy sad surprise
+# 开箱即用：自动下载 YuNet + HSEmotion 预训练模型（AffectNet 8 类，含 Neutral）
+uv run python -m src.runtime.demo --camera 0
 # 或对单张图片推理
-uv run python -m src.runtime.demo --image face.jpg \
-    --face-model models/face/yunet.onnx --emotion-model models/emotion.onnx
+uv run python -m src.runtime.demo --image face.jpg
+# 预先下载全部运行时资产
+uv run python -m src.assets
+
+# 换用自训模型（如 Plan 1B 蒸馏量化产物）
+uv run python -m src.runtime.demo --camera 0 \
+    --emotion-model models/emotion_int8.onnx \
+    --labels anger fear happy sad surprise --input-size 112
 ```
 
 链路：取帧 → YuNet 检测裁脸 → ONNX 情绪模型（onnxruntime）→ 时序平滑 → 情绪事件。

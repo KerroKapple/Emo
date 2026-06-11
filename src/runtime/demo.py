@@ -1,17 +1,20 @@
 """demo.py - 情绪核心 PC 演示：摄像头或图片 → 实时情绪事件
 
-用法:
+开箱即用（自动下载 YuNet + HSEmotion 预训练模型）:
+  uv run python -m src.runtime.demo --camera 0
+  uv run python -m src.runtime.demo --image path/to/face.jpg
+
+自训模型:
   uv run python -m src.runtime.demo --camera 0 \
-      --face-model models/face/yunet.onnx --emotion-model models/emotion_int8.onnx
-  uv run python -m src.runtime.demo --image path/to/face.jpg \
-      --face-model models/face/yunet.onnx --emotion-model models/emotion.onnx
+      --emotion-model models/emotion_int8.onnx --labels anger fear happy sad surprise \
+      --input-size 112
 """
 
 import argparse
 
 import cv2
 
-import src.config as config
+from src import assets
 from src.logging_setup import get_logger
 from src.face.detector import FaceDetector
 from src.engine.onnx_engine import OnnxRuntimeEngine
@@ -21,7 +24,16 @@ from src.runtime.pipeline import process_frame
 logger = get_logger('emotion.demo')
 
 
-def build(face_model, emotion_model, labels, input_size):
+def build(face_model=None, emotion_model=None, labels=None, input_size=None):
+    """构建 检测器/引擎/平滑器；未指定时使用资产注册表缺省（自动下载）"""
+    face_model = face_model or assets.ensure(assets.YUNET)
+    if emotion_model is None:
+        emotion_model = assets.ensure(assets.DEFAULT_EMOTION)
+        labels = labels or list(assets.DEFAULT_EMOTION.labels)
+        input_size = input_size or assets.DEFAULT_EMOTION.input_size
+    if not labels or not input_size:
+        raise ValueError("自定义 --emotion-model 时必须同时给 --labels 与 --input-size")
+
     detector = FaceDetector(face_model)
     engine = OnnxRuntimeEngine(emotion_model, labels, input_size=input_size)
     smoother = EmotionSmoother(num_classes=len(labels))
@@ -62,12 +74,12 @@ def run_camera(source, detector, engine, smoother):
 
 def _parse_args():
     p = argparse.ArgumentParser(description='情绪核心 PC 演示')
-    p.add_argument('--face-model', required=True)
-    p.add_argument('--emotion-model', required=True)
+    p.add_argument('--face-model', help='缺省自动下载 YuNet')
+    p.add_argument('--emotion-model', help='缺省自动下载 HSEmotion enet_b0_8')
     p.add_argument('--camera', type=int)
     p.add_argument('--image')
-    p.add_argument('--input-size', type=int, default=112)
-    p.add_argument('--labels', nargs='+', default=config.CLASSES)
+    p.add_argument('--input-size', type=int)
+    p.add_argument('--labels', nargs='+')
     return p.parse_args()
 
 
