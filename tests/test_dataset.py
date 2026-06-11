@@ -1,11 +1,13 @@
 import inspect
+import os
+import tempfile
+
 from src.dataset import EmotionDataset
 import src.config as config
 
 
 def test_dataset_uses_config_classes():
     # 通过 __init__ 默认构造一个空目录数据集，验证类别来自 config
-    import tempfile, os
     with tempfile.TemporaryDirectory() as d:
         for cls in config.CLASSES:
             os.makedirs(os.path.join(d, cls))

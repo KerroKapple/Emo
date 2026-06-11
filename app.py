@@ -1,244 +1,221 @@
-"""
-app.py - Flask后端API，用于表情识别
-"""
+"""app.py - Flask 表情识别服务"""
 
+import io
+import os
+import base64
+import threading
+
+import torch
 from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
-import torch
-import torch.nn as nn
-from torchvision import transforms
 from PIL import Image
-import io
-import base64
-import os
 
 import src.config as config
-from src.model import get_model
 from src.logging_setup import get_logger
+from src.transforms import build_transform
+from src.inference import load_model_from_checkpoint, predict_probs
 
 logger = get_logger('emotion.app')
 
 app = Flask(__name__)
-CORS(app)  # 允许跨域请求
-
-# 全局变量
-model = None
-device = None
-transform = None
-classes = config.CLASSES
-class_names_zh = config.CLASS_NAMES_ZH
-class_emojis = config.CLASS_EMOJIS
+app.config['MAX_CONTENT_LENGTH'] = config.MAX_UPLOAD_BYTES
+CORS(app)
 
 
-def load_model(model_path, model_type):
-    """加载模型"""
-    global model, device, transform
+class ModelService:
+    """线程安全地持有当前模型及其预处理管线"""
 
-    # 设置设备
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    logger.info(f"使用设备: {device}")
+    def __init__(self):
+        self._lock = threading.Lock()
+        self.model = None
+        self.info = None
+        self.transform = None
+        self.device = None
 
-    # 创建模型
-    model = get_model(model_type, num_classes=config.NUM_CLASSES, pretrained=False)
+    @property
+    def loaded(self):
+        return self.model is not None
 
-    # 加载权重
-    checkpoint = torch.load(model_path, map_location=device)
+    def load(self, model_path):
+        model, info = load_model_from_checkpoint(model_path, device='auto')
+        transform = build_transform(info['model_type'], train=False)
+        with self._lock:
+            self.model, self.info, self.transform, self.device = model, info, transform, info['device']
+        logger.info("已加载模型 %s | 设备 %s", info['model_type'], info['device'])
+        return info
 
-    # 检查是否是量化模型
-    if checkpoint.get('quantized', False):
-        logger.info("加载量化模型...")
-        model = torch.quantization.quantize_dynamic(
-            model,
-            {nn.Linear, nn.Conv2d},
-            dtype=torch.qint8
-        )
-
-    model.load_state_dict(checkpoint['model_state_dict'])
-    model = model.to(device)
-    model.eval()
-
-    # 数据预处理
-    transform = transforms.Compose([
-        transforms.Resize((config.IMAGE_SIZE, config.IMAGE_SIZE)),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=config.IMAGENET_MEAN,
-                             std=config.IMAGENET_STD)
-    ])
-
-    logger.info(f"✅ 模型加载成功: {model_type}")
-    logger.info(f"   训练时准确率: {checkpoint.get('accuracy', 'N/A')}")
+    def predict(self, pil_image):
+        with self._lock:
+            if self.model is None:
+                raise RuntimeError('模型未加载')
+            return predict_probs(self.model, pil_image, self.transform, self.device)
 
 
-def predict_image(image):
-    """预测图片"""
-    if model is None:
-        return None
+service = ModelService()
 
-    # 预处理
-    image_tensor = transform(image).unsqueeze(0).to(device)
 
-    # 预测
-    with torch.no_grad():
-        output = model(image_tensor)
-        probabilities = torch.nn.functional.softmax(output, dim=1)
-        confidence, predicted = torch.max(probabilities, 1)
-
-    # 获取所有类别的概率
-    probs = probabilities[0].cpu().numpy()
-
-    result = {
-        'predicted_class': classes[predicted.item()],
-        'predicted_class_zh': class_names_zh[classes[predicted.item()]],
-        'emoji': class_emojis[classes[predicted.item()]],
-        'confidence': float(confidence.item()),
-        'probabilities': {
-            classes[i]: {
-                'en': classes[i],
-                'zh': class_names_zh[classes[i]],
-                'emoji': class_emojis[classes[i]],
-                'probability': float(probs[i])
-            }
-            for i in range(len(classes))
-        }
+def _read_checkpoint_meta(path):
+    """读取 checkpoint 元信息用于列表展示"""
+    ckpt = torch.load(path, map_location='cpu')
+    return {
+        'model_type': ckpt.get('model_type', 'unknown'),
+        'accuracy': ckpt.get('accuracy'),
+        'is_quantized': ckpt.get('quantized', False),
+        'is_pruned': ckpt.get('pruned', False),
+        'is_distilled': ckpt.get('distilled', False),
     }
 
-    return result
+
+def _build_response(probs):
+    classes = config.CLASSES
+    pred_idx = max(range(len(probs)), key=lambda i: probs[i])
+    pred = classes[pred_idx]
+    return {
+        'predicted_class': pred,
+        'predicted_class_zh': config.CLASS_NAMES_ZH[pred],
+        'emoji': config.CLASS_EMOJIS[pred],
+        'confidence': float(probs[pred_idx]),
+        'probabilities': {
+            cls: {
+                'en': cls,
+                'zh': config.CLASS_NAMES_ZH[cls],
+                'emoji': config.CLASS_EMOJIS[cls],
+                'probability': float(probs[i]),
+            }
+            for i, cls in enumerate(classes)
+        },
+    }
+
+
+def _read_request_image():
+    """从 multipart 文件或 base64 字段解析出 PIL 图像"""
+    if 'file' in request.files:
+        return Image.open(request.files['file'].stream).convert('RGB')
+
+    payload = request.get_json(silent=True) or {}
+    image_data = payload.get('image')
+    if image_data:
+        if ',' in image_data:
+            image_data = image_data.split(',', 1)[1]
+        return Image.open(io.BytesIO(base64.b64decode(image_data))).convert('RGB')
+    return None
 
 
 @app.route('/')
 def index():
-    """主页"""
     return render_template('index.html')
 
 
 @app.route('/api/models', methods=['GET'])
 def get_available_models():
-    """获取可用模型列表"""
     models_dir = str(config.MODELS_DIR)
-
     if not os.path.exists(models_dir):
         return jsonify({'error': '模型文件夹不存在'}), 404
 
     models = []
-    for f in os.listdir(models_dir):
-        if f.endswith('.pth'):
-            model_path = os.path.join(models_dir, f)
-            size_mb = os.path.getsize(model_path) / (1024 * 1024)
-
-            # 推断模型类型
-            if 'distilled' in f:
-                parts = f.replace('distilled_', '').replace('.pth', '').split('_from_')
-                model_type = parts[0]
-            elif 'quantized' in f:
-                model_type = f.replace('best_model_', '').replace('_quantized.pth', '')
-            elif 'pruned' in f:
-                model_type = f.replace('best_model_', '').split('_pruned_')[0]
-            else:
-                model_type = f.replace('best_model_', '').replace('final_model_', '').replace('.pth', '')
-
-            models.append({
-                'filename': f,
-                'model_type': model_type,
-                'size_mb': round(size_mb, 2),
-                'is_quantized': 'quantized' in f,
-                'is_pruned': 'pruned' in f,
-                'is_distilled': 'distilled' in f
-            })
-
+    for f in sorted(os.listdir(models_dir)):
+        if not f.endswith('.pth'):
+            continue
+        path = os.path.join(models_dir, f)
+        try:
+            meta = _read_checkpoint_meta(path)
+        except Exception as e:
+            logger.warning("读取 checkpoint 失败 %s: %s", f, e)
+            continue
+        models.append({
+            'filename': f,
+            'size_mb': round(os.path.getsize(path) / (1024 * 1024), 2),
+            **meta,
+        })
     return jsonify({'models': models})
 
 
 @app.route('/api/load_model', methods=['POST'])
 def load_model_endpoint():
-    """加载指定模型"""
-    data = request.json
-    model_filename = data.get('model_filename')
-    model_type = data.get('model_type')
+    data = request.get_json(silent=True) or {}
+    filename = data.get('model_filename')
+    if not filename:
+        return jsonify({'error': '缺少 model_filename'}), 400
 
-    if not model_filename or not model_type:
-        return jsonify({'error': '缺少参数'}), 400
-
-    model_path = os.path.join(str(config.MODELS_DIR), model_filename)
-
+    model_path = os.path.join(str(config.MODELS_DIR), filename)
     if not os.path.exists(model_path):
         return jsonify({'error': '模型文件不存在'}), 404
 
     try:
-        load_model(model_path, model_type)
+        info = service.load(model_path)
         return jsonify({
             'success': True,
-            'message': f'模型加载成功: {model_type}',
-            'device': str(device)
+            'model_type': info['model_type'],
+            'device': str(info['device']),
+            'accuracy': info['accuracy'],
         })
     except Exception as e:
+        logger.exception("加载模型失败")
         return jsonify({'error': str(e)}), 500
 
 
 @app.route('/api/predict', methods=['POST'])
 def predict():
-    """预测接口"""
-    if model is None:
+    if not service.loaded:
         return jsonify({'error': '请先加载模型'}), 400
 
     try:
-        # 获取图片数据
-        if 'file' in request.files:
-            # 文件上传
-            file = request.files['file']
-            image = Image.open(file.stream).convert('RGB')
-        elif 'image' in request.json:
-            # Base64编码的图片
-            image_data = request.json['image']
-            if ',' in image_data:
-                image_data = image_data.split(',')[1]
-            image_bytes = base64.b64decode(image_data)
-            image = Image.open(io.BytesIO(image_bytes)).convert('RGB')
-        else:
-            return jsonify({'error': '未提供图片'}), 400
-
-        # 预测
-        result = predict_image(image)
-
-        return jsonify(result)
-
+        image = _read_request_image()
     except Exception as e:
+        logger.warning("图片解析失败: %s", e)
+        return jsonify({'error': '图片解析失败'}), 400
+
+    if image is None:
+        return jsonify({'error': '未提供图片'}), 400
+
+    try:
+        probs = service.predict(image)
+        return jsonify(_build_response(probs))
+    except Exception as e:
+        logger.exception("预测失败")
         return jsonify({'error': str(e)}), 500
 
 
 @app.route('/api/status', methods=['GET'])
 def status():
-    """获取服务状态"""
     return jsonify({
-        'model_loaded': model is not None,
-        'device': str(device) if device else None,
-        'classes': classes,
-        'classes_zh': class_names_zh
+        'model_loaded': service.loaded,
+        'model_type': service.info['model_type'] if service.loaded else None,
+        'device': str(service.device) if service.device else None,
+        'classes': config.CLASSES,
+        'classes_zh': config.CLASS_NAMES_ZH,
     })
 
 
-if __name__ == '__main__':
-    # 默认加载一个模型（如果存在）
-    default_model = str(config.MODELS_DIR / 'best_model_resnet18.pth')
-    if os.path.exists(default_model):
-        try:
-            load_model(default_model, 'resnet18')
-            print("✅ 默认模型加载成功")
-        except Exception as e:
-            print(f"⚠️  默认模型加载失败: {e}")
-            print("   请通过API手动加载模型")
+@app.errorhandler(413)
+def too_large(_e):
+    return jsonify({'error': f'上传文件超过 {config.MAX_UPLOAD_BYTES // (1024 * 1024)}MB 限制'}), 413
 
-    print("\n" + "=" * 70)
-    print("🚀 Flask服务器启动")
-    print("=" * 70)
-    print("访问地址: http://localhost:5000")
-    print("API文档:")
-    print("  GET  /api/models       - 获取可用模型列表")
-    print("  POST /api/load_model   - 加载指定模型")
-    print("  POST /api/predict      - 预测图片")
-    print("  GET  /api/status       - 获取服务状态")
-    print("=" * 70)
+
+def _load_default_model():
+    """启动时尝试加载首个 best_model_*.pth"""
+    models_dir = config.MODELS_DIR
+    if not models_dir.exists():
+        return
+    for f in sorted(models_dir.glob('best_model_*.pth')):
+        try:
+            service.load(str(f))
+            logger.info("默认模型已加载: %s", f.name)
+        except Exception as e:
+            logger.warning("默认模型加载失败: %s", e)
+        break
+
+
+if __name__ == '__main__':
+    _load_default_model()
 
     debug = os.environ.get('FLASK_DEBUG', '0') == '1'
     host = os.environ.get('FLASK_HOST', '127.0.0.1')
     port = int(os.environ.get('FLASK_PORT', '5000'))
-    app.run(debug=debug, host=host, port=port)
+    logger.info("启动服务 http://%s:%d (debug=%s)", host, port, debug)
+
+    if debug:
+        app.run(debug=True, host=host, port=port)
+    else:
+        from waitress import serve
+        serve(app, host=host, port=port)
