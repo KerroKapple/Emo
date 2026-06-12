@@ -2,6 +2,8 @@ import os
 from dataclasses import replace
 from unittest.mock import patch
 
+import pytest
+
 from src import assets
 
 
@@ -32,3 +34,19 @@ def test_ensure_downloads_when_missing(tmp_path):
         assert assets.ensure(asset) == str(dest)
         fake.assert_called_once()
         assert os.path.exists(str(dest))
+
+
+def test_ensure_failed_download_leaves_no_partial_file(tmp_path):
+    dest = tmp_path / 'sub' / 'broken.onnx'
+    asset = replace(assets.YUNET, dest=str(dest))
+
+    def fail_midway(url, d):
+        open(d, 'wb').write(b'half')  # 模拟写了一半后中断
+        raise OSError('网络中断')
+
+    with patch('urllib.request.urlretrieve', side_effect=fail_midway), \
+            pytest.raises(OSError):
+        assets.ensure(asset)
+    # 目标与临时文件都不应存在，下次调用会重新下载
+    assert not os.path.exists(str(dest))
+    assert not os.path.exists(str(dest) + '.part')

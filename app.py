@@ -17,6 +17,9 @@ from src.inference import load_model_from_checkpoint, predict_probs
 
 logger = get_logger('emotion.app')
 
+# 防解压炸弹：超过该像素数的图片在解码时直接报错（由 400 分支兜住）
+Image.MAX_IMAGE_PIXELS = 24_000_000
+
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = config.MAX_UPLOAD_BYTES
 CORS(app)
@@ -45,25 +48,37 @@ class ModelService:
         return info
 
     def predict(self, pil_image):
+        # 锁内仅做引用快照，推理在锁外进行，避免请求串行化
         with self._lock:
             if self.model is None:
                 raise RuntimeError('模型未加载')
-            return predict_probs(self.model, pil_image, self.transform, self.device)
+            model, transform, device = self.model, self.transform, self.device
+        return predict_probs(model, pil_image, transform, device)
 
 
 service = ModelService()
 
 
+_meta_cache = {}
+
+
 def _read_checkpoint_meta(path):
-    """读取 checkpoint 元信息用于列表展示"""
-    ckpt = torch.load(path, map_location='cpu')
-    return {
+    """读取 checkpoint 元信息用于列表展示，按 (mtime, size) 缓存避免重复全量反序列化"""
+    stat = os.stat(path)
+    key = (stat.st_mtime_ns, stat.st_size)
+    cached = _meta_cache.get(path)
+    if cached and cached[0] == key:
+        return cached[1]
+    ckpt = torch.load(path, map_location='cpu', weights_only=True)
+    meta = {
         'model_type': ckpt.get('model_type', 'unknown'),
         'accuracy': ckpt.get('accuracy'),
         'is_quantized': ckpt.get('quantized', False),
         'is_pruned': ckpt.get('pruned', False),
         'is_distilled': ckpt.get('distilled', False),
     }
+    _meta_cache[path] = (key, meta)
+    return meta
 
 
 def _build_response(probs):
@@ -136,6 +151,10 @@ def load_model_endpoint():
     filename = data.get('model_filename')
     if not filename:
         return jsonify({'error': '缺少 model_filename'}), 400
+    # 防路径穿越：只接受 models/ 目录下的纯文件名
+    if (filename != os.path.basename(filename) or '/' in filename or '\\' in filename
+            or not filename.endswith('.pth')):
+        return jsonify({'error': '非法文件名'}), 400
 
     model_path = os.path.join(str(config.MODELS_DIR), filename)
     if not os.path.exists(model_path):
@@ -149,9 +168,9 @@ def load_model_endpoint():
             'device': str(info['device']),
             'accuracy': info['accuracy'],
         })
-    except Exception as e:
+    except Exception:
         logger.exception("加载模型失败")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': '模型加载失败'}), 500
 
 
 @app.route('/api/predict', methods=['POST'])
@@ -171,9 +190,9 @@ def predict():
     try:
         probs = service.predict(image)
         return jsonify(_build_response(probs))
-    except Exception as e:
+    except Exception:
         logger.exception("预测失败")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': '预测失败'}), 500
 
 
 @app.route('/api/status', methods=['GET'])
@@ -201,9 +220,9 @@ def _load_default_model():
         try:
             service.load(str(f))
             logger.info("默认模型已加载: %s", f.name)
+            break
         except Exception as e:
             logger.warning("默认模型加载失败: %s", e)
-        break
 
 
 if __name__ == '__main__':
@@ -215,6 +234,10 @@ if __name__ == '__main__':
     logger.info("启动服务 http://%s:%d (debug=%s)", host, port, debug)
 
     if debug:
+        # Werkzeug 调试器暴露交互式控制台，禁止对外监听
+        if host not in ('127.0.0.1', 'localhost'):
+            logger.warning("debug 模式禁止对外监听，已强制 127.0.0.1")
+            host = '127.0.0.1'
         app.run(debug=True, host=host, port=port)
     else:
         from waitress import serve

@@ -87,9 +87,16 @@ def knowledge_distillation(teacher_model_path, student_model_type, num_epochs=15
     teacher, t_info = load_model_from_checkpoint(teacher_model_path, device)
     teacher_type = t_info['model_type']
 
-    if get_input_size(teacher_type) != get_input_size(student_model_type):
-        logger.warning("师生输入尺寸不同(%s/%s)，统一按学生尺寸喂入",
-                       get_input_size(teacher_type), get_input_size(student_model_type))
+    teacher_size = get_input_size(teacher_type)
+    student_size = get_input_size(student_model_type)
+    if teacher_size != student_size:
+        logger.info("师生输入尺寸不同(%s/%s)，教师输入按其尺寸插值", teacher_size, student_size)
+
+    def _teacher_input(images):
+        if teacher_size == student_size:
+            return images
+        return nn.functional.interpolate(images, size=(teacher_size, teacher_size),
+                                         mode='bilinear', align_corners=False)
 
     transform_train = build_transform(student_model_type, train=True)
     transform_val = build_transform(student_model_type, train=False)
@@ -120,7 +127,7 @@ def knowledge_distillation(teacher_model_path, student_model_type, num_epochs=15
         for images, labels in tqdm(train_loader, desc='蒸馏训练', ncols=100):
             images, labels = images.to(device), labels.to(device)
             with torch.no_grad():
-                teacher_logits = teacher(images)
+                teacher_logits = teacher(_teacher_input(images))
             optimizer.zero_grad()
             student_logits = student(images)
             loss, _, _ = criterion(student_logits, teacher_logits, labels)

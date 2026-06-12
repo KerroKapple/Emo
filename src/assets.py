@@ -46,12 +46,18 @@ DEFAULT_EMOTION = HSEMOTION_ENET_B0_8
 
 
 def ensure(asset):
-    """资产本地不存在则下载，返回本地路径"""
+    """资产本地不存在则下载（先写临时文件再原子改名，避免半截文件被当缓存），返回本地路径"""
     if os.path.exists(asset.dest):
         return asset.dest
     os.makedirs(os.path.dirname(asset.dest), exist_ok=True)
+    tmp = asset.dest + '.part'
     logger.info("下载 %s: %s", asset.name, asset.url)
-    urllib.request.urlretrieve(asset.url, asset.dest)
+    try:
+        urllib.request.urlretrieve(asset.url, tmp)
+        os.replace(tmp, asset.dest)
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
     logger.info("已保存: %s", asset.dest)
     return asset.dest
 

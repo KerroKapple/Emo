@@ -26,7 +26,7 @@
 emotion-recognition/
 ├── app.py                      # Flask Web服务入口
 ├── pyproject.toml              # 项目依赖（uv 管理）
-├── .gitignore
+├── LICENSE                     # MIT 许可证
 │
 ├── src/                        # 核心代码
 │   ├── config.py              # 集中配置（路径、类别、输入尺寸、超参）
@@ -38,30 +38,30 @@ emotion-recognition/
 │   ├── train_multiple.py      # 批量训练与对比
 │   ├── evaluate.py            # 模型评估工具
 │   ├── optimize_distill.py    # 模型优化（量化/剪枝/蒸馏）
+│   ├── assets.py              # 运行时资产注册表（YuNet/HSEmotion 下载与缓存）
+│   ├── face/                  # 人脸检测与裁剪（YuNet）
+│   ├── engine/                # 可替换推理后端（onnxruntime，可扩展 RKNN/ncnn）
+│   ├── runtime/               # 情绪核心运行时（单帧编排、时序平滑、Demo）
 │   ├── logging_setup.py       # 统一日志
 │   └── utils.py               # 工具函数（随机种子、数据划分、可视化）
 │
 ├── templates/
 │   └── index.html             # Web演示前端页面
 │
+├── tests/                      # pytest 测试
+├── docs/                       # 设计稿与实施计划
+│
 ├── data/                       # 数据目录（需自行准备）
-│   ├── raw/                   # 原始数据
-│   │   ├── anger/
-│   │   ├── fear/
-│   │   ├── happy/
-│   │   ├── sad/
-│   │   └── surprise/
+│   ├── raw/                   # 原始数据（anger/fear/happy/sad/surprise）
 │   ├── train/                 # 训练集（自动生成）
 │   └── val/                   # 验证集（自动生成）
 │
-├── models/                     # 模型权重（训练后生成）
-│   ├── best_model_*.pth
-│   └── distilled_*.pth
+├── models/                     # 模型权重
+│   ├── best_model_*.pth       # 训练产物
+│   ├── face/yunet.onnx        # 人脸检测（自动下载）
+│   └── emotion/*.onnx         # 情绪模型（自动下载）
 │
 └── results/                    # 训练结果（自动生成）
-    ├── training_history_*.png
-    ├── confusion_matrix_*.png
-    └── models_comparison.csv
 ```
 
 ## 🚀 快速开始
@@ -144,8 +144,9 @@ uv run python -m src.evaluate --model-path models/best_model_resnet18.pth --imag
 ```bash
 # 启动 Web（默认仅本机访问 127.0.0.1:5000，使用 waitress 生产服务器）
 uv run python app.py
-# 对外访问 / 开发调试（FLASK_DEBUG=1 时改用 Flask 自带服务器并开启热重载）：
-# FLASK_HOST=0.0.0.0 FLASK_DEBUG=1 uv run python app.py
+# 对外访问（waitress）：FLASK_HOST=0.0.0.0 uv run python app.py
+# 开发调试（仅限本机；调试器有 RCE 风险，代码会强制 127.0.0.1）：
+# FLASK_DEBUG=1 uv run python app.py
 ```
 
 访问 http://localhost:5000 查看 Web 界面。启动时会自动加载首个 `best_model_*.pth`。
@@ -241,8 +242,7 @@ POST /api/load_model
 Content-Type: application/json
 
 {
-    "model_filename": "best_model_resnet18.pth",
-    "model_type": "resnet18"
+    "model_filename": "best_model_resnet18.pth"
 }
 ```
 
@@ -292,7 +292,7 @@ GET /api/status
 
 ### 学习率调度
 
-使用 `ReduceLROnPlateau`：当验证损失不再下降时自动降低学习率。
+使用 `ReduceLROnPlateau`：当验证准确率不再提升时自动降低学习率。
 
 ### 防止过拟合
 
@@ -360,7 +360,7 @@ uv run ruff check src app.py tests
 
 如有问题或建议，请通过以下方式联系：
 - 提交 GitHub Issue
-- 发送邮件至：[Kerro99920@gmail.com]
+- 发送邮件至：[Kerro99920@gmail.com](mailto:Kerro99920@gmail.com)
 
 ---
 

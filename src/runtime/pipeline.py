@@ -18,6 +18,7 @@ def process_frame(frame, detector, engine, smoother):
     crops = detector.detect_and_crop(frame, size=engine.input_size)
     crops = [(box, face) for box, face in crops if face is not None]
     if not crops:
+        smoother.note_no_face()
         return None
 
     box, face = max(crops, key=lambda bc: bc[0][2] * bc[0][3])

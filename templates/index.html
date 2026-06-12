@@ -397,7 +397,7 @@
                     <div class="upload-icon">📁</div>
                     <div class="upload-text">点击或拖拽上传图片</div>
                     <div style="color: #999; margin-top: 10px; font-size: 0.9em;">
-                        支持 JPG, PNG · 最大 10MB
+                        支持 JPG, PNG · 最大 7.5MB
                     </div>
                 </div>
 
@@ -468,6 +468,10 @@
             loadModels();
         };
 
+        // 阻止拖拽落点偏出上传框时浏览器直接打开文件
+        window.addEventListener('dragover', e => e.preventDefault());
+        window.addEventListener('drop', e => e.preventDefault());
+
         // 检查服务状态
         async function checkStatus() {
             try {
@@ -499,6 +503,11 @@
                 const modelGrid = document.getElementById('modelGrid');
                 modelGrid.innerHTML = '';
 
+                if (data.error) {
+                    showError(data.error);
+                    modelGrid.innerHTML = '<div class="model-option"><div class="model-name">暂无模型，请先训练</div></div>';
+                    return;
+                }
                 if (!data.models || data.models.length === 0) {
                     modelGrid.innerHTML = '<div class="model-option"><div class="model-name">暂无模型，请先训练</div></div>';
                     return;
@@ -563,7 +572,8 @@
             }
         }
 
-        const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+        // 服务端按请求体（base64 膨胀约 4/3）限 10MB，前端按原始文件折算
+        const MAX_UPLOAD_BYTES = Math.floor(10 * 1024 * 1024 * 3 / 4);
 
         // 处理文件选择
         function handleFileSelect(event) {
@@ -586,7 +596,7 @@
                 return;
             }
             if (file.size > MAX_UPLOAD_BYTES) {
-                showError('图片超过 10MB 限制');
+                showError('图片超过 7.5MB 限制（base64 传输有体积膨胀）');
                 return;
             }
             const reader = new FileReader();

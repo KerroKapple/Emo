@@ -34,11 +34,14 @@ def evaluate_model(model_path, batch_size=64, device='auto', save_results=True):
     all_pred, all_true, inference_times = [], [], []
     correct = total = 0
 
+    sync = torch.cuda.synchronize if device.type == 'cuda' else (lambda: None)
     with torch.no_grad():
         for images, labels in tqdm(val_loader, desc='评估中', ncols=100):
             images, labels = images.to(device), labels.to(device)
+            sync()
             t0 = time.time()
             outputs = model(images)
+            sync()
             inference_times.append(time.time() - t0)
             _, predicted = torch.max(outputs, 1)
             total += labels.size(0)

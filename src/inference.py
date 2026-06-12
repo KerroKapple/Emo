@@ -52,16 +52,18 @@ def load_model_from_checkpoint(path, device='auto', *, eval_mode=True):
     if not os.path.exists(path):
         raise FileNotFoundError(f"模型文件不存在: {path}")
 
-    device = resolve_device(device)
-    checkpoint = torch.load(path, map_location=device)
+    checkpoint = torch.load(path, map_location='cpu', weights_only=True)
 
     model_type = checkpoint['model_type']
     num_classes = checkpoint.get('num_classes', config.NUM_CLASSES)
     model = get_model(model_type, num_classes=num_classes, pretrained=False)
 
-    # 量化模型须先量化再 load_state_dict，使权重键与结构一致
+    # 量化模型须先量化再 load_state_dict，使权重键与结构一致；动态量化仅支持 CPU
     if checkpoint.get('quantized', False):
         model = torch.quantization.quantize_dynamic(model, {nn.Linear}, dtype=torch.qint8)
+        device = torch.device('cpu')
+    else:
+        device = resolve_device(device)
 
     model.load_state_dict(checkpoint['model_state_dict'])
     model = model.to(device)

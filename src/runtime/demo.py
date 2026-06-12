@@ -28,10 +28,12 @@ def build(face_model=None, emotion_model=None, labels=None, input_size=None):
     """构建 检测器/引擎/平滑器；未指定时使用资产注册表缺省（自动下载）"""
     face_model = face_model or assets.ensure(assets.YUNET)
     if emotion_model is None:
+        if labels is not None or input_size is not None:
+            raise ValueError("--labels/--input-size 仅在指定 --emotion-model 时有效")
         emotion_model = assets.ensure(assets.DEFAULT_EMOTION)
-        labels = labels or list(assets.DEFAULT_EMOTION.labels)
-        input_size = input_size or assets.DEFAULT_EMOTION.input_size
-    if not labels or not input_size:
+        labels = list(assets.DEFAULT_EMOTION.labels)
+        input_size = assets.DEFAULT_EMOTION.input_size
+    if not labels or not input_size or input_size <= 0:
         raise ValueError("自定义 --emotion-model 时必须同时给 --labels 与 --input-size")
 
     detector = FaceDetector(face_model)
@@ -55,21 +57,23 @@ def run_camera(source, detector, engine, smoother):
         logger.error("无法打开摄像头: %s", source)
         return
     logger.info("按 q 退出")
-    while True:
-        ok, frame = cap.read()
-        if not ok:
-            break
-        event = process_frame(frame, detector, engine, smoother)
-        if event:
-            x, y, w, h = event.box
-            cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 200, 0), 2)
-            cv2.putText(frame, f"{event.label} {event.score:.2f}", (x, y - 8),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 200, 0), 2)
-        cv2.imshow('emotion-core', frame)
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
-    cap.release()
-    cv2.destroyAllWindows()
+    try:
+        while True:
+            ok, frame = cap.read()
+            if not ok:
+                break
+            event = process_frame(frame, detector, engine, smoother)
+            if event:
+                x, y, w, h = event.box
+                cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 200, 0), 2)
+                cv2.putText(frame, f"{event.label} {event.score:.2f}", (x, y - 8),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 200, 0), 2)
+            cv2.imshow('emotion-core', frame)
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
+    finally:
+        cap.release()
+        cv2.destroyAllWindows()
 
 
 def _parse_args():

@@ -62,3 +62,29 @@ def test_predict_missing_image_returns_400(client, tmp_path):
 
     r = client.post('/api/predict', json={})
     assert r.status_code == 400
+
+
+def test_load_model_missing_filename_returns_400(client):
+    r = client.post('/api/load_model', json={})
+    assert r.status_code == 400
+
+
+@pytest.mark.parametrize('bad', ['../secret.pth', '..\\secret.pth', 'C:/x/y.pth', 'model.bin'])
+def test_load_model_rejects_traversal_and_bad_suffix(client, bad):
+    r = client.post('/api/load_model', json={'model_filename': bad})
+    assert r.status_code == 400
+
+
+def test_load_model_nonexistent_returns_404(client):
+    r = client.post('/api/load_model', json={'model_filename': 'no_such_model.pth'})
+    assert r.status_code == 404
+
+
+def test_predict_invalid_base64_returns_400(client, tmp_path):
+    model = get_model('cnn', num_classes=config.NUM_CLASSES, pretrained=False)
+    path = str(tmp_path / 'best_model_cnn.pth')
+    save_checkpoint(model, 'cnn', path, val_acc=80.0)
+    app_module.service.load(path)
+
+    r = client.post('/api/predict', json={'image': 'data:image/png;base64,not-an-image'})
+    assert r.status_code == 400
