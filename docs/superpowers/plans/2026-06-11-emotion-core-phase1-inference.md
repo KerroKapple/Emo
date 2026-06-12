@@ -1,5 +1,7 @@
 # 情绪核心 Phase 1A：推理闭环 Implementation Plan
 
+> **历史快照**：本计划已执行完毕。文中 `src/face/fetch_yunet.py` 后续被 `src/assets.py` 资产注册表取代（commit 5066534），相关命令以 README「情绪核心」一节为准。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 实现硬件无关的实时人脸情绪推理闭环：帧 → YuNet 检测裁脸 → ONNX 情绪模型（可插拔引擎）→ 时序平滑 → 情绪事件，可在普通电脑上演示，核心逻辑在 CPU 上全单测覆盖。

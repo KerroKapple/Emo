@@ -1,7 +1,7 @@
 # 设计：陪伴机器人「情绪感知核心」（嵌入式表情识别）
 
 日期：2026-06-11
-状态：设计稿（待评审）
+状态：Phase 1A 已实施（commit 233d8bd / 5066534）。落地偏差：情绪模型缺省采用 HSEmotion AffectNet 8 类（非 RAF-DB 7 类）；运行时为 `src/runtime/demo.py + pipeline.py`（非 loop.py）；模型下载由 `src/assets.py` 资产注册表统一管理。
 
 ## 1. 背景与定位
 
